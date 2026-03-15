@@ -110,17 +110,97 @@ async function startServer() {
         );
       `);
       client.release();
+      console.log("✅ Base de données Postgres connectée !");
     } catch (err) {
+      console.log("⚠️ Base de données non connectée. Mode temporaire (Mock) activé.");
       isMockMode = true;
     }
   };
-  await initDb();
-  // --- API Routes ---
-  // (Clients, Invoices, Media, Auth Google, etc. à copier du code original)
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Le serveur AC GESTION tourne sur le port ${PORT}`);
+  // 1. On lance l'initialisation de la base de données en arrière-plan (SANS bloquer le démarrage)
+  initDb();
+
+  // =====================================================================
+  // --- TES ROUTES API RECODÉES ---
+  // =====================================================================
+
+  // Authentification Google
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    process.env.GOOGLE_REDIRECT_URI || "https://acgestion-backend.onrender.com/api/auth/google/callback"
+  );
+
+  app.get('/api/auth/google', (req, res) => {
+    const url = oauth2Client.generateAuthUrl({
+      access_type: 'offline',
+      scope: ['https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email']
+    });
+    res.json({ url }); 
+  });
+
+  app.get('/api/auth/google/callback', async (req, res) => {
+    const { code } = req.query;
+    try {
+      const { tokens } = await oauth2Client.getToken(code as string);
+      oauth2Client.setCredentials(tokens);
+      res.redirect(`https://applicationqc.github.io?token=${tokens.access_token}`);
+    } catch (error) {
+      console.error("Erreur Google:", error);
+      res.redirect(`https://applicationqc.github.io?error=auth_failed`);
+    }
+  });
+
+  // Gestion des Clients
+  app.get('/api/clients', async (req, res) => {
+    if (isMockMode) return res.json(mockDb.clients);
+    try {
+      const result = await pool.query('SELECT * FROM clients ORDER BY id DESC');
+      res.json(result.rows);
+    } catch (err) {
+      res.status(500).json({ error: "Erreur serveur BD" });
+    }
+  });
+
+  app.post('/api/clients', async (req, res) => {
+    const { nom, telephone, adresse, email, notes } = req.body;
+    if (isMockMode) {
+      const newClient = { id: Date.now(), nom, telephone, adresse, email, notes };
+      mockDb.clients.push(newClient);
+      return res.json(newClient);
+    }
+    try {
+      const result = await pool.query(
+        'INSERT INTO clients (nom, telephone, adresse, email, notes) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+        [nom, telephone, adresse, email, notes]
+      );
+      res.json(result.rows[0]);
+    } catch (err) {
+      res.status(500).json({ error: "Erreur serveur BD" });
+    }
+  });
+
+  // Gestion des Factures
+  app.get('/api/invoices', async (req, res) => {
+    if (isMockMode) return res.json(mockDb.invoices);
+    try {
+      const result = await pool.query('SELECT * FROM invoices ORDER BY date DESC');
+      res.json(result.rows);
+    } catch (err) {
+      res.status(500).json({ error: "Erreur serveur BD" });
+    }
+  });
+
+  // =====================================================================
+  
+  // 2. On configure le PORT officiel de Render
+  const PORT = process.env.PORT || 3000;
+
+  // 3. On ouvre les portes sur 0.0.0.0 IMMÉDIATEMENT
+  app.listen(PORT as number, "0.0.0.0", () => {
+    console.log(`✅ SUCCÈS : Le serveur AC GESTION tourne sur le port ${PORT}`);
   });
 }
 
+startServer();
 startServer();
