@@ -44,7 +44,6 @@ const pool = new Pool({
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT || 3000;
 
   app.use(cors({
     origin: [
@@ -116,13 +115,9 @@ async function startServer() {
     }
   };
   await initDb();
-
   // --- API Routes ---
   // (Clients, Invoices, Media, Auth Google, etc. à copier du code original)
 
-  // ... (copie des routes ici, voir code source original)
-
-  const PORT = process.env.PORT || 3000;
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Le serveur AC GESTION tourne sur le port ${PORT}`);
   });
