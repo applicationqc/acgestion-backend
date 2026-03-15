@@ -19,11 +19,13 @@ dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
+// Configure multer for local storage
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, uploadsDir);
@@ -54,6 +56,7 @@ async function startServer() {
   app.use(express.json());
   app.use('/uploads', express.static(uploadsDir));
 
+  // --- Database Initialization & Mock Fallback ---
   let isMockMode = false;
   const mockDb = {
     clients: [] as any[],
@@ -66,10 +69,45 @@ async function startServer() {
     try {
       const client = await pool.connect();
       await client.query(`
-        CREATE TABLE IF NOT EXISTS clients (id SERIAL PRIMARY KEY, nom TEXT NOT NULL, telephone TEXT, adresse TEXT, email TEXT, notes TEXT);
-        CREATE TABLE IF NOT EXISTS invoices (id SERIAL PRIMARY KEY, vendor TEXT NOT NULL, date DATE, subtotal NUMERIC, tps NUMERIC, tvq NUMERIC, total NUMERIC, category TEXT, tps_number TEXT, tvq_number TEXT, uid TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
-        CREATE TABLE IF NOT EXISTS media (id SERIAL PRIMARY KEY, uid TEXT NOT NULL, title TEXT, description TEXT, embedding JSONB, url TEXT, type TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
-        CREATE TABLE IF NOT EXISTS user_tokens (uid TEXT PRIMARY KEY, access_token TEXT, refresh_token TEXT, expiry_date BIGINT, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+        CREATE TABLE IF NOT EXISTS clients (
+          id SERIAL PRIMARY KEY,
+          nom TEXT NOT NULL,
+          telephone TEXT,
+          adresse TEXT,
+          email TEXT,
+          notes TEXT
+        );
+        CREATE TABLE IF NOT EXISTS invoices (
+          id SERIAL PRIMARY KEY,
+          vendor TEXT NOT NULL,
+          date DATE,
+          subtotal NUMERIC,
+          tps NUMERIC,
+          tvq NUMERIC,
+          total NUMERIC,
+          category TEXT,
+          tps_number TEXT,
+          tvq_number TEXT,
+          uid TEXT NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS media (
+          id SERIAL PRIMARY KEY,
+          uid TEXT NOT NULL,
+          title TEXT,
+          description TEXT,
+          embedding JSONB,
+          url TEXT,
+          type TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS user_tokens (
+          uid TEXT PRIMARY KEY,
+          access_token TEXT,
+          refresh_token TEXT,
+          expiry_date BIGINT,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
       `);
       client.release();
       console.log("✅ Base de données Postgres connectée !");
@@ -79,9 +117,14 @@ async function startServer() {
     }
   };
 
+  // 1. On lance l'initialisation de la base de données en arrière-plan (SANS bloquer le démarrage)
   initDb();
 
-  // --- ROUTES API ---
+  // =====================================================================
+  // --- TES ROUTES API RECODÉES ---
+  // =====================================================================
+
+  // Authentification Google
   const oauth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
@@ -108,6 +151,7 @@ async function startServer() {
     }
   });
 
+  // Gestion des Clients
   app.get('/api/clients', async (req, res) => {
     if (isMockMode) return res.json(mockDb.clients);
     try {
@@ -126,13 +170,17 @@ async function startServer() {
       return res.json(newClient);
     }
     try {
-      const result = await pool.query('INSERT INTO clients (nom, telephone, adresse, email, notes) VALUES ($1, $2, $3, $4, $5) RETURNING *', [nom, telephone, adresse, email, notes]);
+      const result = await pool.query(
+        'INSERT INTO clients (nom, telephone, adresse, email, notes) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+        [nom, telephone, adresse, email, notes]
+      );
       res.json(result.rows[0]);
     } catch (err) {
       res.status(500).json({ error: "Erreur serveur BD" });
     }
   });
 
+  // Gestion des Factures
   app.get('/api/invoices', async (req, res) => {
     if (isMockMode) return res.json(mockDb.invoices);
     try {
@@ -143,12 +191,16 @@ async function startServer() {
     }
   });
 
-  // --- DÉMARRAGE DU SERVEUR ---
-  const PORT = process.env.PORT || 3000;
+  // =====================================================================
   
+  // 2. On configure le PORT officiel de Render
+  const PORT = process.env.PORT || 3000;
+
+  // 3. On ouvre les portes sur 0.0.0.0 IMMÉDIATEMENT
   app.listen(PORT as number, "0.0.0.0", () => {
     console.log(`✅ SUCCÈS : Le serveur AC GESTION tourne sur le port ${PORT}`);
   });
 }
 
+startServer();
 startServer();
